@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import { RUNTIME_KINDS, type RoleAccess, type SessionEvent } from "@bigtop/protocol";
+import type { RoleAccess, SessionEvent } from "@bigtop/protocol";
 import { ConnectorClient } from "./client.ts";
 import { ConfigError, defaultConfigPath, loadConfig } from "./config.ts";
 import { Connector } from "./connector.ts";
@@ -12,12 +12,12 @@ const USAGE = `Usage:
       every runtime available on this machine.
       Default config: ${defaultConfigPath()}
 
-  bigtop-connector exec [--runtime claude|codex] [--cwd <dir>]
+  bigtop-connector exec [--runtime claude|codex|opencode] [--cwd <dir>]
                         [--access read-only|workspace-write] [--model <id>]
                         [--max-turns <n>] [--raw] <prompt>
       Run one session locally (Claude by default) and print its events as
       JSON lines. Tool calls that need approval are denied; Codex never asks
-      and relies on its sandbox.`;
+      and relies on its sandbox. OpenCode models are written provider/model.`;
 
 const log = (line: string) => process.stderr.write(`[bigtop] ${line}\n`);
 
@@ -79,14 +79,7 @@ async function exec(args: string[]): Promise<number> {
     throw new UsageError("--access must be read-only or workspace-write");
   }
   const loader = RUNTIME_LOADERS.find((l) => l.kind === values.runtime);
-  if (!loader) {
-    const known = RUNTIME_LOADERS.map((l) => l.kind).join(" or ");
-    throw new UsageError(
-      RUNTIME_KINDS.includes(values.runtime as never)
-        ? `runtime ${values.runtime} is not supported yet; use ${known}`
-        : `--runtime must be ${known}`,
-    );
-  }
+  if (!loader) throw new UsageError(`--runtime must be ${RUNTIME_LOADERS.map((l) => l.kind).join(", ")}`);
   const maxTurns = values["max-turns"] === undefined ? undefined : Number(values["max-turns"]);
   if (maxTurns !== undefined && !(Number.isInteger(maxTurns) && maxTurns > 0)) {
     throw new UsageError("--max-turns must be a positive integer");

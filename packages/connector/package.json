@@ -12,7 +12,8 @@
   "dependencies": {
     "@bigtop/protocol": "^0.0.0",
     "@bigtop/runtime-claude": "^0.0.0",
-    "@bigtop/runtime-codex": "^0.0.0"
+    "@bigtop/runtime-codex": "^0.0.0",
+    "@bigtop/runtime-opencode": "^0.0.0"
   },
   "devDependencies": {
     "@types/ws": "^8.18.2",

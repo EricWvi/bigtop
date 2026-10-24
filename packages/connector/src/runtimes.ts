@@ -13,6 +13,7 @@ export interface RuntimeLoader {
 export const RUNTIME_LOADERS: RuntimeLoader[] = [
   { kind: "claude", load: async () => (await import("@bigtop/runtime-claude")).createClaudeRuntime() },
   { kind: "codex", load: async () => (await import("@bigtop/runtime-codex")).createCodexRuntime() },
+  { kind: "opencode", load: async () => (await import("@bigtop/runtime-opencode")).createOpencodeRuntime() },
 ];
 
 /** Loads every runtime that works on this machine, logging why the others do not. */
