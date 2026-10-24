@@ -52,7 +52,7 @@ const hello = (over: Partial<Hello> = {}): Hello => ({
   connectorId: "alice",
   token: "secret",
   capabilities: {
-    runtimes: [{ kind: "claude", version: "1", capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, fork: true } }],
+    runtimes: [{ kind: "claude", version: "1", capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, structuredOutput: true, fork: true } }],
     slots: 1,
     workspaces: ["demo"],
     platform: "linux",

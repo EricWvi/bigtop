@@ -14,6 +14,8 @@ export interface RuntimeCapabilities {
   maxTurns: boolean;
   /** Enforces `SessionLimits.maxCostUsd`; runtimes without it ignore the limit. */
   maxCostUsd: boolean;
+  /** Honours `SendOptions.outputSchema`; runtimes without it fail such turns. */
+  structuredOutput: boolean;
   fork: boolean;
 }
 

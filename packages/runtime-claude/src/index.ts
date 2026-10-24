@@ -59,7 +59,7 @@ export function createClaudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime
   return {
     kind: "claude",
     version: sdkVersion(),
-    capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, fork: true },
+    capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, structuredOutput: true, fork: true },
     start: (spec) => open(randomUUID(), spec, false),
     resume: (id, spec) => open(id, spec, true),
   };

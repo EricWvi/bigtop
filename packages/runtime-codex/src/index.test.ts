@@ -24,7 +24,7 @@ function recordingCodex() {
 test("maps roles onto the sandbox, never asks for approval and never uses full access", async () => {
   const fake = recordingCodex();
   const runtime = createCodexRuntime({ codex: fake.codex, codexPathOverride: "/bin/codex" });
-  assert.deepEqual(runtime.capabilities, { toolApproval: false, costUsd: false, maxTurns: false, maxCostUsd: false, fork: false });
+  assert.deepEqual(runtime.capabilities, { toolApproval: false, costUsd: false, maxTurns: false, maxCostUsd: false, structuredOutput: true, fork: false });
 
   await runtime.start({ cwd: "/work", role: { name: "implementer", access: "workspace-write", instructions: "be careful", model: "gpt-x" }, limits: {} });
   await runtime.resume("t1", { cwd: "/work", role: { name: "reviewer", access: "read-only" }, limits: {} });

@@ -50,7 +50,7 @@ function fakeRuntime(turn: Turn, over: Partial<Runtime> = {}) {
   const runtime: Runtime = {
     kind: "claude",
     version: "1.0.0",
-    capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, fork: true },
+    capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, structuredOutput: true, fork: true },
     start: (spec) => open(`s${sessions.length + 1}`, spec),
     resume: (id, spec) => {
       resumed.push(id);
@@ -275,7 +275,7 @@ test("runtimes without tool approval get no onToolApproval", async () => {
     async function* () {
       yield completed;
     },
-    { kind: "codex", capabilities: { toolApproval: false, costUsd: false, maxTurns: false, maxCostUsd: false, fork: false } },
+    { kind: "codex", capabilities: { toolApproval: false, costUsd: false, maxTurns: false, maxCostUsd: false, structuredOutput: true, fork: false } },
   );
   const { connector } = setup([fake.runtime]);
   connector.handle(offer({ runtime: "codex" }));

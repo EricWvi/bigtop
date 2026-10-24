@@ -69,7 +69,7 @@ export function createCodexRuntime(options: CodexRuntimeOptions = {}): Runtime {
   return {
     kind: "codex",
     version: sdkVersion(),
-    capabilities: { toolApproval: false, costUsd: false, maxTurns: false, maxCostUsd: false, fork: false },
+    capabilities: { toolApproval: false, costUsd: false, maxTurns: false, maxCostUsd: false, structuredOutput: true, fork: false },
     start: async (spec) => open(spec),
     resume: async (id, spec) => open(spec, id),
   };

@@ -62,18 +62,14 @@ export interface RuntimeHarness {
   kind: RuntimeKind;
   /** The tool name the runtime reports for a shell command. */
   shellTool: string;
+  /** A model id in the form the runtime accepts; defaults to "model-x". */
+  model?: string;
   /** A runtime whose fake SDK plays `turns[i]` as the i-th turn it is asked to run. */
   create(turns: Step[][]): FakeSdk;
 }
 
 const usage: StepUsage = { input: 10, output: 5, cached: 3, costUsd: 0.01 };
 
-const spec = (over: Partial<SessionSpec> = {}): SessionSpec => ({
-  cwd: "/work",
-  role: { name: "implementer", access: "workspace-write", instructions: "be careful", model: "model-x" },
-  limits: {},
-  ...over,
-});
 
 /** Collects a turn's events without `raw`, `usage.turns` and undefined fields. */
 async function collect(stream: AsyncIterable<SessionEvent>): Promise<SessionEvent[]> {
@@ -90,12 +86,19 @@ const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
 
 export function runtimeContract(h: RuntimeHarness): void {
   const name = (title: string) => `${h.kind} runtime contract: ${title}`;
+  const model = h.model ?? "model-x";
+  const spec = (over: Partial<SessionSpec> = {}): SessionSpec => ({
+    cwd: "/work",
+    role: { name: "implementer", access: "workspace-write", instructions: "be careful", model },
+    limits: {},
+    ...over,
+  });
 
   test(name("declares its kind and every capability"), () => {
     const { runtime } = h.create([]);
     assert.equal(runtime.kind, h.kind);
     assert.match(runtime.version, /\S/);
-    for (const key of ["toolApproval", "costUsd", "maxTurns", "maxCostUsd", "fork"] as const) {
+    for (const key of ["toolApproval", "costUsd", "maxTurns", "maxCostUsd", "structuredOutput", "fork"] as const) {
       assert.equal(typeof runtime.capabilities[key], "boolean", key);
     }
   });
@@ -143,7 +146,7 @@ export function runtimeContract(h: RuntimeHarness): void {
     assert.deepEqual(
       fake.turns.map(({ cwd, model, instructions, access }) => ({ cwd, model, instructions, access })),
       [
-        { cwd: "/work", model: "model-x", instructions: "be careful", access: "workspace-write" },
+        { cwd: "/work", model, instructions: "be careful", access: "workspace-write" },
         { cwd: "/repo", model: undefined, instructions: undefined, access: "read-only" },
       ],
     );
@@ -176,6 +179,14 @@ export function runtimeContract(h: RuntimeHarness): void {
     const schema = { type: "object", properties: { ok: { type: "boolean" } } };
     const fake = h.create([[{ kind: "complete", text: '{"ok":true}', structured: { ok: true }, usage }]]);
     const session = await fake.runtime.start(spec());
+    if (!fake.runtime.capabilities.structuredOutput) {
+      // Without the capability the turn fails up front instead of returning unchecked text.
+      const events = await collect(session.send("judge", { outputSchema: schema }));
+      assert.equal(events.length, 1);
+      assert.equal(events[0]!.type, "error");
+      assert.equal(fake.turns.length, 0);
+      return;
+    }
     const events = await collect(session.send("judge", { outputSchema: schema }));
     const last = events.at(-1)!;
     assert.equal(last.type, "turn.completed");

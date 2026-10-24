@@ -27,7 +27,7 @@ function scriptedRuntime(): Runtime & { prompts: string[]; decisions: ToolApprov
   return {
     kind: "claude",
     version: "test",
-    capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, fork: false },
+    capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, structuredOutput: true, fork: false },
     prompts,
     decisions,
     async start(spec: SessionSpec): Promise<RuntimeSession> {
