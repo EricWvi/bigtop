@@ -1,26 +1,34 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
-import type { RoleAccess, SessionEvent } from "@bigtop/protocol";
-import { createClaudeRuntime } from "@bigtop/runtime-claude";
+import { RUNTIME_KINDS, type RoleAccess, type SessionEvent } from "@bigtop/protocol";
 import { ConnectorClient } from "./client.ts";
 import { ConfigError, defaultConfigPath, loadConfig } from "./config.ts";
 import { Connector } from "./connector.ts";
+import { detectRuntimes, RUNTIME_LOADERS } from "./runtimes.ts";
 
 const USAGE = `Usage:
   bigtop-connector start [--config <file>]
-      Connect to the bigtop server and run the sessions it dispatches.
+      Connect to the bigtop server and run the sessions it dispatches, with
+      every runtime available on this machine.
       Default config: ${defaultConfigPath()}
 
-  bigtop-connector exec [--cwd <dir>] [--access read-only|workspace-write]
-                        [--model <id>] [--max-turns <n>] [--raw] <prompt>
-      Run one Claude session locally and print its events as JSON lines.
-      Tool calls that need approval are denied.`;
+  bigtop-connector exec [--runtime claude|codex] [--cwd <dir>]
+                        [--access read-only|workspace-write] [--model <id>]
+                        [--max-turns <n>] [--raw] <prompt>
+      Run one session locally (Claude by default) and print its events as
+      JSON lines. Tool calls that need approval are denied; Codex never asks
+      and relies on its sandbox.`;
 
 const log = (line: string) => process.stderr.write(`[bigtop] ${line}\n`);
 
 async function start(args: string[]): Promise<number> {
   const { values } = parseArgs({ args, options: { config: { type: "string" } } });
   const config = loadConfig(values.config ?? defaultConfigPath());
+  const runtimes = await detectRuntimes(log);
+  if (runtimes.length === 0) {
+    log("no runtime is available on this machine");
+    return 1;
+  }
 
   const client = new ConnectorClient({ url: config.server, log });
   const connector = new Connector({
@@ -28,7 +36,7 @@ async function start(args: string[]): Promise<number> {
     token: config.token,
     slots: config.slots,
     workspaces: config.workspaces,
-    runtimes: [createClaudeRuntime()],
+    runtimes,
     send: (msg) => client.send(msg),
     approvalTimeoutMs: config.approvalTimeoutMs,
     log,
@@ -57,6 +65,7 @@ async function exec(args: string[]): Promise<number> {
     args,
     allowPositionals: true,
     options: {
+      runtime: { type: "string", default: "claude" },
       cwd: { type: "string", default: process.cwd() },
       access: { type: "string", default: "workspace-write" },
       model: { type: "string" },
@@ -69,12 +78,29 @@ async function exec(args: string[]): Promise<number> {
   if (values.access !== "read-only" && values.access !== "workspace-write") {
     throw new UsageError("--access must be read-only or workspace-write");
   }
+  const loader = RUNTIME_LOADERS.find((l) => l.kind === values.runtime);
+  if (!loader) {
+    const known = RUNTIME_LOADERS.map((l) => l.kind).join(" or ");
+    throw new UsageError(
+      RUNTIME_KINDS.includes(values.runtime as never)
+        ? `runtime ${values.runtime} is not supported yet; use ${known}`
+        : `--runtime must be ${known}`,
+    );
+  }
   const maxTurns = values["max-turns"] === undefined ? undefined : Number(values["max-turns"]);
   if (maxTurns !== undefined && !(Number.isInteger(maxTurns) && maxTurns > 0)) {
     throw new UsageError("--max-turns must be a positive integer");
   }
 
-  const session = await createClaudeRuntime().start({
+  let runtime;
+  try {
+    runtime = await loader.load();
+  } catch (err) {
+    log(`runtime ${loader.kind} unavailable: ${(err as Error).message}`);
+    return 1;
+  }
+  if (maxTurns !== undefined && !runtime.capabilities.maxTurns) log(`${runtime.kind} ignores --max-turns`);
+  const session = await runtime.start({
     cwd: values.cwd,
     role: { name: "exec", access: values.access as RoleAccess, model: values.model },
     limits: { maxTurns },
@@ -83,7 +109,8 @@ async function exec(args: string[]): Promise<number> {
       return { behavior: "deny", message: "No approver is available in exec mode." };
     },
   });
-  log(`session ${session.id}`);
+  const knownAtStart = session.id !== undefined;
+  if (knownAtStart) log(`session ${session.id}`);
   process.on("SIGINT", () => {
     log("interrupting");
     session.interrupt().catch(() => {});
@@ -96,6 +123,7 @@ async function exec(args: string[]): Promise<number> {
     last = event;
   }
   await session.close();
+  if (!knownAtStart && session.id) log(`session ${session.id}`);
   return last?.type === "turn.completed" ? 0 : 1;
 }
 
