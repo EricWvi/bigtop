@@ -1,0 +1,21 @@
+{
+  "name": "@bigtop/server",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bigtop-server": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "devDependencies": {
+    "@bigtop/connector": "^0.0.0",
+    "@types/ws": "^8.18.2"
+  },
+  "dependencies": {
+    "@bigtop/protocol": "^0.0.0",
+    "@bigtop/source-local": "^0.0.0",
+    "ws": "^8.22.0"
+  }
+}
