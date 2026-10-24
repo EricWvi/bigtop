@@ -80,7 +80,7 @@ interface Runtime {
 interface SessionSpec {
   cwd: string;
   role: ResolvedRole;            // 系统提示、模型、工具与权限预设
-  limits: { maxTurns?: number; maxCostUsd?: number; deadline?: Date };
+  limits: { maxTurns?: number; maxCostUsd?: number; deadline?: string }; // ISO 时间
   onToolApproval?: (req: ToolApprovalRequest) => Promise<ToolApprovalDecision>;
 }
 
@@ -92,7 +92,7 @@ interface RuntimeSession {
 }
 ```
 
-`SessionEvent` 是三家事件的归一化结果：`message`、`reasoning`、`tool.started`、`tool.completed`、`file.changed`、`approval.requested`、`turn.completed`（带用量）、`error`。原始事件保留在 `raw` 字段里，便于排查问题。
+`SessionEvent` 是三家事件的归一化结果：`message`、`reasoning`、`tool.started`、`tool.completed`、`file.changed`、`turn.completed`（带用量）、`error`。原始事件保留在 `raw` 字段里，便于排查问题。审批请求不算会话事件：connector 把它作为单独的消息发给 server，并等待结论。
 
 ### Codex 没有逐次审批时怎么办
 

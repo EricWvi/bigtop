@@ -80,7 +80,7 @@ interface Runtime {
 interface SessionSpec {
   cwd: string;
   role: ResolvedRole;            // system prompt, model, tool and permission presets
-  limits: { maxTurns?: number; maxCostUsd?: number; deadline?: Date };
+  limits: { maxTurns?: number; maxCostUsd?: number; deadline?: string }; // ISO time
   onToolApproval?: (req: ToolApprovalRequest) => Promise<ToolApprovalDecision>;
 }
 
@@ -92,7 +92,7 @@ interface RuntimeSession {
 }
 ```
 
-`SessionEvent` normalizes the three SDKs' events: `message`, `reasoning`, `tool.started`, `tool.completed`, `file.changed`, `approval.requested`, `turn.completed` (with usage), `error`. The original event is kept in a `raw` field for debugging.
+`SessionEvent` normalizes the three SDKs' events: `message`, `reasoning`, `tool.started`, `tool.completed`, `file.changed`, `turn.completed` (with usage), `error`. The original event is kept in a `raw` field for debugging. Approval requests are not session events: the connector sends them to the server as their own messages and waits for the decision.
 
 ### Codex has no per-tool approval
 
