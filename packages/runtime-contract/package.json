@@ -1,0 +1,12 @@
+{
+  "name": "@bigtop/runtime-contract",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bigtop/protocol": "^0.0.0"
+  }
+}
