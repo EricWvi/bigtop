@@ -50,6 +50,8 @@ bigtop lets a crew of agents pick up work on their own. Everyone runs a connecto
 
 Checked against the type definitions of the versions installed from npm on 2026-10-24: `@anthropic-ai/claude-agent-sdk` 0.3.310, `@openai/codex-sdk` 0.164.0, `@opencode-ai/sdk` 1.19.4 (v2 entry).
 
+OpenCode currently ships two lines. `@opencode-ai/sdk` 1.19.4 and the column below describe the `opencode-ai` 1.x server. The `@opencode/cli` 2.x server is different: `opencode serve` prints `server listening on …` plus a server password, serves only an `/api` HttpApi (for example `/api/session/{id}/permission/{requestID}/reply`), and pairs with `@opencode/client` or the in-process `@opencode/sdk` 2.x. The 1.19.4 SDK cannot start or talk to it. Which line to target is an open question.
+
 | Capability | Claude Agent SDK | Codex SDK | OpenCode SDK |
 |---|---|---|---|
 | Shape | In-process `query()`, driving Claude Code | `Codex.startThread()`, driving `codex exec` and reading JSONL events | Client/server: `createOpencode()` starts `opencode serve`; HTTP + SSE |
@@ -71,6 +73,8 @@ interface Runtime {
   readonly capabilities: {
     toolApproval: boolean;   // can intercept individual tool calls (false for Codex)
     costUsd: boolean;        // reports cost
+    maxTurns: boolean;       // enforces limits.maxTurns (false for Codex)
+    maxCostUsd: boolean;     // enforces limits.maxCostUsd (false for Codex)
     fork: boolean;
   };
   start(spec: SessionSpec): Promise<RuntimeSession>;
@@ -85,7 +89,7 @@ interface SessionSpec {
 }
 
 interface RuntimeSession {
-  readonly id: string;           // used for resume
+  readonly id: string | undefined; // used for resume; Codex assigns it during the first turn
   send(input: string, opts?: { outputSchema?: JsonSchema }): AsyncIterable<SessionEvent>;
   interrupt(): Promise<void>;
   close(): Promise<void>;
@@ -94,15 +98,33 @@ interface RuntimeSession {
 
 `SessionEvent` normalizes the three SDKs' events: `message`, `reasoning`, `tool.started`, `tool.completed`, `file.changed`, `turn.completed` (with usage), `error`. The original event is kept in a `raw` field for debugging. Approval requests are not session events: the connector sends them to the server as their own messages and waits for the decision.
 
+Rules every runtime follows:
+
+- A turn ends with exactly one `turn.completed` or `error`; a turn stopped by `interrupt()` ends with the error `interrupted`, one past its deadline with `session deadline passed`.
+- `usage.inputTokens` excludes tokens read from the prompt cache; those are `cachedInputTokens`. (Codex counts them as input; its adapter subtracts them.)
+- A session may have no id until its first turn. `dispatch.accept` then omits the session id and `session.ended` carries it.
+
+The `runtime-contract` package checks these rules, plus event normalization, role mapping, multi-turn and resume, structured output, errors and tool approval, against every runtime: each runtime package runs the same suite with a harness that plays SDK-neutral steps on its fake SDK.
+
 ### Codex has no per-tool approval
 
 Codex sessions always run with `approvalPolicy: "never"`; the safety boundary comes entirely from presets:
 
-- A role's permissions map to `sandboxMode`: read-only roles (reviewer, approver) use `read-only`, implementers use `workspace-write`, and `danger-full-access` is never allowed.
-- Network access is set per role through `networkAccessEnabled`.
+- A role's permissions map to `sandboxMode`: read-only roles (reviewer, approver) use `read-only`, implementers use `workspace-write`, and `danger-full-access` is never allowed. The flags override `sandbox_mode` and `approval_policy` in the person's `~/.codex/config.toml`.
+- Role instructions are passed as `developer_instructions`.
+- Network access stays at Codex's default, off under `workspace-write`; setting it per role through `networkAccessEnabled` is not wired up yet.
 - High-risk actions that need approval (push, merge, writing to the task source) are not executed by the agent directly; it calls the action tools the connector provides (see "Actions") and approval happens at the workflow level.
 
 This gives all three runtimes the same approval semantics: workflow-level approval applies to every runtime, and tool-level approval is an extra that only Claude and OpenCode have.
+
+Measured with codex-cli 0.164.0 on Linux:
+
+- Out-of-bounds operations under `workspace-write` with `approvalPolicy: "never"` fail inside the sandbox without asking anyone: writing to `$HOME` outside the workspace fails, writing into `.git` fails, and network connections fail. The turn does not fail; the agent sees failed commands and carries on.
+- `/tmp` and `$TMPDIR` are writable under `workspace-write`: they are among Codex's default writable roots, so the sandbox is not "workspace only".
+- Commands the sandbox refuses produce no `command_execution` item, so they never appear as tool events. Ordinary failing commands do appear, with `status: "failed"`. bigtop therefore cannot audit sandbox denials from Codex.
+- Killing `codex exec`, which is how a turn is aborted, leaves the command it was running alive, because Codex runs commands in their own session. After an aborted turn the adapter stops processes whose environment carries the thread's `CODEX_THREAD_ID`. This works on Linux only; elsewhere such commands keep running.
+- Codex reads the person's `~/.codex/config.toml` and `~/.codex/AGENTS.md`, where its credentials also live, whereas Claude sessions load project settings only. Instructions in the personal `AGENTS.md` reach the session.
+- Codex enforces neither `maxTurns` nor `maxCostUsd` (its capabilities say so); `deadline` works.
 
 ## Actions: high-risk operations go through the connector
 
@@ -196,6 +218,7 @@ packages/
   runtime-claude/
   runtime-codex/
   runtime-opencode/
+  runtime-contract/  contract tests every runtime runs
   source-github/
   source-local/      local Markdown tasks, for development and demos
   playbooks/         built-in playbooks (including circus)
@@ -206,7 +229,7 @@ Why TypeScript: all three SDKs are first-class in TS, and the connector has to r
 ## Phases
 
 1. **Dispatch one task**: protocol, server (single process, in-memory storage), connector, `runtime-claude`, `source-local`. Done when a task written in local Markdown makes the connector start a Claude session that completes it, with the event stream visible.
-2. **All three runtimes**: add `runtime-codex` and `runtime-opencode`, cover all three with one integration test suite, and revise the interface to match the real differences.
+2. **All three runtimes**: add `runtime-codex` and `runtime-opencode`, cover all three with one integration test suite, and revise the interface to match the real differences. `runtime-codex`, the contract suite and the interface changes are in; `runtime-opencode` waits on which OpenCode line to target.
 3. **Approval**: action tools, policy files, approver sessions, the human inbox. Done when an implementer requests a merge and an approver session returns a verdict, and requests matching a `deny` hard rule never reach an approver session.
 4. **GitHub + circus playbook**: `source-github`, running "discover → implement → review → approve merge" end to end on a real circus-style repository.
 5. **Channels and multiple roles**: channels, @-mention wake-ups, the orchestrator role.
@@ -218,4 +241,5 @@ Why TypeScript: all three SDKs are first-class in TS, and the connector has to r
 - How people sign in: GitHub OAuth, or bigtop accounts linked to each Source's identity.
 - Deduplicating a task mirrored in several Sources (for example a GitHub issue and a local task).
 - Whether the approver is a long-lived session (cheaper context loading) or opened fresh each time (more independent).
-- How Codex's `approvalPolicy: "never"` actually behaves on an out-of-bounds operation under `workspace-write`; to be verified in phase 2.
+- Which OpenCode line `runtime-opencode` targets: the 1.x server that `@opencode-ai/sdk` 1.19.4 describes, or the 2.x `@opencode/cli` server and its `/api` HttpApi.
+- Whether Codex's `workspace-write` should also exclude `/tmp` and `$TMPDIR` (`sandbox_workspace_write.exclude_slash_tmp`, `exclude_tmpdir_env_var`), and how to keep personal `~/.codex` instructions out of sessions without losing the credentials stored there.

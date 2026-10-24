@@ -2,12 +2,13 @@
 
 [English](getting-started.md) | 简体中文
 
-本文在一台机器上走一遍第一期的完整流程：server 监视一个存放 Markdown 任务的目录，connector 为这些任务启动 Claude 会话。server 和 connector 放在不同机器上也一样能用，只要改 URL。
+本文在一台机器上走一遍 bigtop 的完整流程：server 监视一个存放 Markdown 任务的目录，connector 为这些任务启动 Claude 或 Codex 会话。server 和 connector 放在不同机器上也一样能用，只要改 URL。
 
 ## 准备
 
 - Node.js 24 或更高版本。
 - 已登录 Claude Code（终端里能运行 `claude`），或者设置了 `ANTHROPIC_API_KEY`。connector 使用 Claude Agent SDK 在本机找到的凭据，server 永远看不到它们。
+- 可选，用于 Codex 任务：已登录 Codex（`codex login status` 显示已登录）。Codex SDK 自带 `codex` 可执行文件，凭据来自 `~/.codex`。
 
 ```sh
 git clone https://github.com/EricWvi/bigtop.git
@@ -31,7 +32,7 @@ node ~/bigtop/packages/server/src/cli.ts start --config server.json
 node ~/bigtop/packages/connector/src/cli.ts start --config connector.json
 ```
 
-server 每个事件打印一行。几秒内，任务 `hello-world` 会派给 connector，并在 `workspace/` 里启动一个 Claude 会话。会话要执行 shell 命令时，会出现一行带审批 id 的 `approval.requested`，会话随之等待。
+connector 会在日志里列出找到的运行时（`runtime claude … available`、`runtime codex … available`），并且只向 server 登记这些。server 每个事件打印一行。几秒内，任务 `hello-world` 会派给 connector，并在 `workspace/` 里启动一个 Claude 会话。会话要执行 shell 命令时，会出现一行带审批 id 的 `approval.requested`，会话随之等待。
 
 ## 批准或拒绝
 
@@ -76,10 +77,16 @@ max-turns: 10
 | `status` | `open`、`done` 或 `failed`；只有 `open` 的任务会被派发 | `open` |
 | `workspace` | connector 配置里某个工作区的名字 | `defaults.workspace` |
 | `role` | `implementer`（可以改文件）、`reviewer`（只读），或 server 配置里定义的角色 | `defaults.role`，没有就是 `implementer` |
-| `runtime` | `claude`（其他运行时第二期加入） | `defaults.runtime`，没有就是 `claude` |
+| `runtime` | `claude` 或 `codex`（暂不支持 OpenCode） | `defaults.runtime`，没有就是 `claude` |
 | `max-turns`、`max-cost-usd` | 单个任务的限额 | `defaults.limits` |
 
 失败的任务不会自动重试；要重跑，把 `status` 改回 `open`。
+
+Codex 和 Claude 有几处会影响任务的差别：
+
+- 它从不请求审批。角色决定它的沙箱（`reviewer` 用 `read-only`，`implementer` 用 `workspace-write`），被沙箱拒绝的命令直接失败。在 `workspace-write` 下它仍然可以写 `/tmp`，并且不能联网。
+- 它忽略 `max-turns` 和 `max-cost-usd`，只报告 token 数，不报告费用。
+- 它会读取你的 `~/.codex/config.toml` 和 `~/.codex/AGENTS.md`，所以那里的个人指示也会进入 bigtop 会话。
 
 ## server 配置
 
@@ -117,8 +124,9 @@ max-turns: 10
 - `workspaces` 列出这台机器愿意在其中工作的目录。server 只会发来名字，因此无法让 agent 去碰其他路径。
 - `slots` 是同时运行的会话数上限。
 
-不连 server、只想试一下运行时，可以用 `exec` 跑一次会话并打印事件：
+不连 server、只想试一下运行时，可以用 `exec` 跑一次会话并打印事件。`--runtime` 选择 `claude`（默认）或 `codex`：
 
 ```sh
 node packages/connector/src/cli.ts exec --cwd /path/to/repo --access read-only "Summarize this repository"
+node packages/connector/src/cli.ts exec --runtime codex --cwd /path/to/repo --access read-only "Summarize this repository"
 ```

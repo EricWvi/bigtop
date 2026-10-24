@@ -2,12 +2,13 @@
 
 English | [简体中文](getting-started.zh.md)
 
-This walks through phase 1 on one machine: a server watching a directory of Markdown tasks, and a connector that runs Claude sessions for them. Everything here also works with the server and connector on different machines; only the URL changes.
+This walks through bigtop on one machine: a server watching a directory of Markdown tasks, and a connector that runs Claude or Codex sessions for them. Everything here also works with the server and connector on different machines; only the URL changes.
 
 ## Prerequisites
 
 - Node.js 24 or later.
 - Claude Code signed in (`claude` works in a terminal) or `ANTHROPIC_API_KEY` set. The connector uses whatever the Claude Agent SDK finds on its machine; the server never sees the credentials.
+- Optional, for Codex tasks: Codex signed in (`codex login status` says so). The Codex SDK brings its own `codex` executable; the credentials come from `~/.codex`.
 
 ```sh
 git clone https://github.com/EricWvi/bigtop.git
@@ -31,7 +32,7 @@ node ~/bigtop/packages/server/src/cli.ts start --config server.json
 node ~/bigtop/packages/connector/src/cli.ts start --config connector.json
 ```
 
-The server prints one line per event. Within a few seconds the task `hello-world` is offered to the connector and a Claude session starts in `workspace/`. When the session wants to run a shell command, an `approval.requested` line appears with an approval id, and the session waits.
+The connector logs which runtimes it found (`runtime claude … available`, `runtime codex … available`) and offers only those to the server. The server prints one line per event. Within a few seconds the task `hello-world` is offered to the connector and a Claude session starts in `workspace/`. When the session wants to run a shell command, an `approval.requested` line appears with an approval id, and the session waits.
 
 ## Approve or deny
 
@@ -76,10 +77,16 @@ What to do, in as much detail as the agent needs.
 | `status` | `open`, `done` or `failed`; only `open` tasks are dispatched | `open` |
 | `workspace` | Name of a workspace in the connector config | `defaults.workspace` |
 | `role` | `implementer` (may edit files), `reviewer` (read-only), or a role from the server config | `defaults.role`, else `implementer` |
-| `runtime` | `claude` (others arrive in phase 2) | `defaults.runtime`, else `claude` |
+| `runtime` | `claude` or `codex` (OpenCode is not supported yet) | `defaults.runtime`, else `claude` |
 | `max-turns`, `max-cost-usd` | Per-task limits | `defaults.limits` |
 
 A failed task is not retried on its own; set `status: open` again to rerun it.
+
+Codex differs from Claude in ways that matter for tasks:
+
+- It never asks for approval. The role picks its sandbox (`reviewer` runs `read-only`, `implementer` runs `workspace-write`), and commands the sandbox refuses simply fail. Under `workspace-write` it can still write to `/tmp`, and it has no network.
+- It ignores `max-turns` and `max-cost-usd` and reports tokens but no cost.
+- It reads your `~/.codex/config.toml` and `~/.codex/AGENTS.md`, so personal instructions there reach bigtop sessions too.
 
 ## Server config
 
@@ -117,8 +124,9 @@ A failed task is not retried on its own; set `status: open` again to rerun it.
 - `workspaces` names the directories this machine is willing to work in. The server only ever sends a name, so it cannot point an agent at any other path.
 - `slots` is how many sessions may run at once.
 
-To try a runtime without any server, `exec` runs one session and prints its events:
+To try a runtime without any server, `exec` runs one session and prints its events. `--runtime` picks `claude` (the default) or `codex`:
 
 ```sh
 node packages/connector/src/cli.ts exec --cwd /path/to/repo --access read-only "Summarize this repository"
+node packages/connector/src/cli.ts exec --runtime codex --cwd /path/to/repo --access read-only "Summarize this repository"
 ```
