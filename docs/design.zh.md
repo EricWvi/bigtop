@@ -173,10 +173,10 @@ agent 对外部世界有影响的写操作，不直接用 shell 执行，而是�
 
 ```ts
 interface Envelope<T> {
-  id: string;            // 全局唯一、单调
+  id: number;            // 在同一个 server 内单调递增
   at: string;            // ISO 时间
   actor: { kind: "human" | "agent" | "connector" | "system"; id: string };
-  subject?: { task?: string; session?: string; approval?: string };
+  subject?: { task?: string; dispatch?: string; session?: string; approval?: string; connector?: string };
   type: string;
   data: T;
 }

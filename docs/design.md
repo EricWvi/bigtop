@@ -173,10 +173,10 @@ All events share an envelope:
 
 ```ts
 interface Envelope<T> {
-  id: string;            // globally unique, monotonic
+  id: number;            // increases monotonically within one server
   at: string;            // ISO time
   actor: { kind: "human" | "agent" | "connector" | "system"; id: string };
-  subject?: { task?: string; session?: string; approval?: string };
+  subject?: { task?: string; dispatch?: string; session?: string; approval?: string; connector?: string };
   type: string;
   data: T;
 }

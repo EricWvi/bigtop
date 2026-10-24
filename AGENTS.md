@@ -8,10 +8,13 @@ bigtop starts agents automatically to work on tasks: each person runs a connecto
 
 ```text
 packages/
-  protocol/        shared types: Runtime interface, session events, connector↔server wire messages
+  protocol/        shared types: Runtime and Source interfaces, session events, event envelope, connector↔server wire messages
   runtime-claude/  Runtime adapter for the Claude Agent SDK
   connector/       connector process and the `bigtop-connector` CLI
-docs/              design documents
+  server/          hub (scheduling, leases, event log), default playbook, HTTP/WebSocket server, `bigtop-server` CLI
+  source-local/    Source backed by a directory of Markdown task files
+docs/              design and getting-started documents
+examples/demo/     configs and a task for running server and connector locally
 ```
 
 Packages listed in the design but not here do not exist yet.

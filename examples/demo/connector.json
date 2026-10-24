@@ -1,0 +1,9 @@
+{
+  "server": "ws://127.0.0.1:7420/connect",
+  "connectorId": "demo-connector",
+  "token": "change-me-connector",
+  "slots": 1,
+  "workspaces": {
+    "demo": "workspace"
+  }
+}

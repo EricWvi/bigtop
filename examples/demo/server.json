@@ -1,0 +1,15 @@
+{
+  "host": "127.0.0.1",
+  "port": 7420,
+  "adminToken": "change-me-admin",
+  "connectors": {
+    "demo-connector": "change-me-connector"
+  },
+  "sources": [{ "type": "local", "name": "local", "dir": "tasks" }],
+  "defaults": {
+    "role": "implementer",
+    "runtime": "claude",
+    "workspace": "demo",
+    "limits": { "maxTurns": 20, "maxCostUsd": 1 }
+  }
+}

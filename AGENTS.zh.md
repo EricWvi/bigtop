@@ -8,10 +8,13 @@ bigtop 自动启动 agent 执行任务：每个人运行一个 connector 连到 
 
 ```text
 packages/
-  protocol/        共享类型：Runtime 接口、会话事件、connector↔server 线上消息
+  protocol/        共享类型：Runtime 和 Source 接口、会话事件、事件信封、connector↔server 线上消息
   runtime-claude/  Claude Agent SDK 的 Runtime 适配器
   connector/       connector 进程和 `bigtop-connector` CLI
-docs/              设计文档
+  server/          hub（调度、租约、事件日志）、默认 playbook、HTTP/WebSocket 服务、`bigtop-server` CLI
+  source-local/    以 Markdown 任务文件目录为数据源的 Source
+docs/              设计和快速上手文档
+examples/demo/     在本机运行 server 和 connector 的配置与任务
 ```
 
 设计里列出、但这里没有的包还不存在。
