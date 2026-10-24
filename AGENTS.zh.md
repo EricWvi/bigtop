@@ -11,6 +11,7 @@ packages/
   protocol/         共享类型：Runtime 和 Source 接口、会话事件、事件信封、connector↔server 线上消息
   runtime-claude/   Claude Agent SDK 的 Runtime 适配器
   runtime-codex/    Codex SDK 的 Runtime 适配器
+  runtime-opencode/ OpenCode 2.x 的 Runtime 适配器（`opencode serve` 和 `@opencode/client`）
   runtime-contract/ 契约测试，每个 runtime 都在自己的 `contract.test.ts` 里运行
   connector/        connector 进程和 `bigtop-connector` CLI
   server/           hub（调度、租约、事件日志）、默认 playbook、HTTP/WebSocket 服务、`bigtop-server` CLI

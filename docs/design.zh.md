@@ -48,20 +48,20 @@ bigtop 让一群 agent 自动接活：每个人在自己机器上运行 connecto
 
 ### 三家 SDK 的实际能力
 
-依据 2026-10-24 从 npm 安装的版本核对类型定义：`@anthropic-ai/claude-agent-sdk` 0.3.310、`@openai/codex-sdk` 0.164.0、`@opencode-ai/sdk` 1.19.4（v2 入口）。
+依据从 npm 安装的版本核对类型定义：`@anthropic-ai/claude-agent-sdk` 0.3.310 和 `@openai/codex-sdk` 0.164.0 于 2026-10-24 核对，`@opencode/client` 2.0.28 于 2026-10-25 核对。
 
-OpenCode 目前有两条产品线。`@opencode-ai/sdk` 1.19.4 和下表的 OpenCode 一列描述的是 `opencode-ai` 1.x 的 server。`@opencode/cli` 2.x 的 server 不一样：`opencode serve` 启动时打印 `server listening on …` 和一个 server password，只提供 `/api` 下的 HttpApi（例如 `/api/session/{id}/permission/{requestID}/reply`），配套的是 `@opencode/client` 或进程内的 `@opencode/sdk` 2.x。1.19.4 的 SDK 既拉不起它，也连不上它。对接哪一条线是待决问题。
+OpenCode 有两条产品线。bigtop 对接 2.x（`@opencode/cli`）：它的 `opencode serve` 只提供 `/api` 下的 v2 HttpApi，用 basic auth 保护，密码在启动时打印；`@opencode/client` 是它生成的客户端，版本必须与 server 一致。1.x 产品线（`opencode-ai`、`@opencode-ai/sdk` 1.19.4）的 API 不同，不支持。
 
-| 能力 | Claude Agent SDK | Codex SDK | OpenCode SDK |
+| 能力 | Claude Agent SDK | Codex SDK | OpenCode 2.x |
 |---|---|---|---|
-| 形态 | 进程内 `query()`，底层驱动 Claude Code | `Codex.startThread()`，底层驱动 `codex exec`，读 JSONL 事件 | client/server：`createOpencode()` 拉起 `opencode serve`，HTTP + SSE |
-| 多轮 | `streamInput()` 或 `resume` 新开 query | 同一 `Thread` 多次 `run()` / `runStreamed()` | 同一 session 多次 `session.prompt()` / `promptAsync()` |
-| 恢复 | `resume: sessionId`，`forkSession` | `resumeThread(id)`，存于 `~/.codex/sessions` | session 持久在 server，`session.fork()` |
-| 中断 | `Query.interrupt()`、`abortController` | `TurnOptions.signal`（AbortSignal） | `session.abort()` |
-| 逐次工具审批 | **有**：异步回调 `canUseTool(toolName, input, …)` 返回 allow/deny | **无**：只能预设 `approvalPolicy` 和 `sandboxMode` | **有**：SSE 事件 `permission.asked`，用 `permission.reply(requestID, "once" \| "always" \| "reject")` 回复 |
-| 权限预设 | `permissionMode`（含 `auto`）、allow/deny 规则 | `sandboxMode`：`read-only` / `workspace-write` / `danger-full-access` | 配置里的 `permission` 规则 |
-| 结构化输出 | `outputFormat` | `TurnOptions.outputSchema` | `format`（json_schema） |
-| 用量 | `total_cost_usd`、`maxBudgetUsd`、`maxTurns` | 每轮 token 数，无费用 | 消息上有 `cost` |
+| 形态 | 进程内 `query()`，底层驱动 Claude Code | `Codex.startThread()`，底层驱动 `codex exec`，读 JSONL 事件 | client/server：`opencode serve`（HTTP + SSE `/api/event`）加 `@opencode/client` |
+| 多轮 | `streamInput()` 或 `resume` 新开 query | 同一 `Thread` 多次 `run()` / `runStreamed()` | 同一 session 多次 `session.prompt()`；提示词入队后即返回 |
+| 恢复 | `resume: sessionId`，`forkSession` | `resumeThread(id)`，存于 `~/.codex/sessions` | session 持久在 OpenCode 的数据库里，`session.fork()` |
+| 中断 | `Query.interrupt()`、`abortController` | `TurnOptions.signal`（AbortSignal） | `session.interrupt()` |
+| 逐次工具审批 | **有**：异步回调 `canUseTool(toolName, input, …)` 返回 allow/deny | **无**：只能预设 `approvalPolicy` 和 `sandboxMode` | **有**：事件 `permission.asked`，用 `permission.reply({ decision: "once" \| "always" \| "reject" })` 回复 |
+| 权限预设 | `permissionMode`（含 `auto`）、allow/deny 规则 | `sandboxMode`：`read-only` / `workspace-write` / `danger-full-access` | session 的 `permissions`：`{ action, resource, effect }` 规则，后匹配的生效 |
+| 结构化输出 | `outputFormat` | `TurnOptions.outputSchema` | **无** |
+| 用量 | `total_cost_usd`、`maxBudgetUsd`、`maxTurns` | 每轮 token 数，无费用 | 每一步的费用和 token 数（`session.step.ended`） |
 
 ### 接口
 
@@ -75,6 +75,7 @@ interface Runtime {
     costUsd: boolean;        // 能否报告费用
     maxTurns: boolean;       // 能否执行 limits.maxTurns（Codex 为 false）
     maxCostUsd: boolean;     // 能否执行 limits.maxCostUsd（Codex 为 false）
+    structuredOutput: boolean; // 能否遵守 outputSchema（OpenCode 为 false）
     fork: boolean;
   };
   start(spec: SessionSpec): Promise<RuntimeSession>;
@@ -120,11 +121,21 @@ Codex 会话一律以 `approvalPolicy: "never"` 运行，安全边界完全靠�
 用 codex-cli 0.164.0 在 Linux 上实测：
 
 - `workspace-write` 加 `approvalPolicy: "never"` 时，越权操作在沙箱里直接失败，不会询问任何人：在工作区外的 `$HOME` 写文件失败，写 `.git` 失败，网络连接失败。这一轮不会因此失败；agent 看到命令失败后继续工作。
-- `workspace-write` 下 `/tmp` 和 `$TMPDIR` 可写：它们属于 Codex 默认的可写目录，所以这个沙箱并不是"只能写工作区"。
+- `workspace-write` 下 `/tmp` 和 `$TMPDIR` 可写：它们属于 Codex 默认的可写目录，所以这个沙箱并不是"只能写工作区"。bigtop 保持这一点不变，工具需要一个临时目录。
 - 被沙箱拒绝的命令不产生 `command_execution` 条目，因此不会出现在工具事件里；普通的失败命令会出现，`status` 为 `"failed"`。所以 bigtop 无法审计 Codex 的沙箱拒绝。
 - 中断一轮的方式是杀掉 `codex exec`，但它正在运行的命令会留下来，因为 Codex 把命令放在独立的会话里运行。一轮被中断后，适配器会停掉环境变量里带有本 thread `CODEX_THREAD_ID` 的进程。这只在 Linux 上有效；其他平台上这些命令会继续运行。
-- Codex 会读个人的 `~/.codex/config.toml` 和 `~/.codex/AGENTS.md`，登录凭据也存在这个目录；Claude 会话则只加载项目设置。个人 `AGENTS.md` 里的指示会进入会话。
+- Codex 会读个人的 `~/.codex/config.toml` 和 `~/.codex/AGENTS.md`，登录凭据也存在这个目录；Claude 会话则只加载项目设置。个人 `AGENTS.md` 里的指示会进入会话。bigtop 不隔离 `~/.codex`。
 - Codex 既不执行 `maxTurns` 也不执行 `maxCostUsd`（capabilities 里如实声明）；`deadline` 有效。
+
+### OpenCode
+
+- **server**：默认由 runtime 在第一个会话开始时拉起一个私有的 `opencode serve --port=0`，最后一个会话关闭一分钟后停掉，connector 退出时一并杀掉。它从不使用个人的后台 `opencode service`。也可以改为连接一个已有的 server。
+- **角色**：每个会话在 `build` agent（默认全部放行）之上加一组 `permissions`：`shell` 和 `external_directory` 需要询问，`question` 一律拒绝（没有人能回答），只读角色还拒绝 `edit`。instructions 写进会话的 instruction 条目 `bigtop`（实验性接口）；模型写成 `provider/model`。resume 时重新套用角色。
+- **一轮**：适配器先订阅事件再发提示词，并等到事件流的第一个事件，因为订阅是惰性连接的。一轮以 `session.execution.succeeded`、`failed` 或 `interrupted` 结束；`session.idle` 并不可靠。本会话启动的子 agent 会话发来的权限请求，走同一条审批路径。
+- **限额**：OpenCode 自己没有轮数和费用上限，所以某一步结束时若已超过 `maxTurns` 或 `maxCostUsd`，适配器就中断会话。
+- **文件**：每一步会列出改过的文件，但不说明怎么改的，所以 `file.changed` 一律报 `update`。
+
+用 opencode 2.0.28 和 `deepseek/deepseek-flash` 实测：只读会话根本拿不到写入和编辑工具；`workspace-write` 下在工作区内写文件不询问，写到工作区外会询问；`shell` 会询问；中断也会停掉正在运行的 shell 命令；`maxTurns` 会在达到上限的那一步之后停下会话。
 
 ## 动作：高风险操作经 connector 执行
 
@@ -165,7 +176,7 @@ agent 对外部世界有影响的写操作，不直接用 shell 执行，而是�
 
 - **独立**：审批会话不复用申请会话的上下文，每次新开或使用专用的长期审批会话；可以配置为与申请方不同的 runtime 或模型。
 - **只读**：审批角色只有读权限（Codex `read-only`；Claude 和 OpenCode 禁止所有写入类工具），它能读 diff、任务和代码，但不能改。
-- **结构化结论**：用各家的结构化输出约束结论为 `{ verdict, reason, conditions? }`，解析失败按 `escalate` 处理。
+- **结构化结论**：用 runtime 的结构化输出约束结论为 `{ verdict, reason, conditions? }`，所以审批会话要跑在具备 `structuredOutput` 的 runtime 上（Claude 或 Codex，不能用 OpenCode）；解析失败按 `escalate` 处理。
 - **策略文件**：每个 playbook 附一份审批策略（自然语言 + 硬规则）。硬规则在调用审批会话之前由代码判定：
   - `deny`：永远拒绝，审批会话无权覆盖（比如 force push 到默认分支、改凭据、删仓库）；
   - `escalate`：永远交给人；
@@ -229,7 +240,7 @@ packages/
 ## 分期
 
 1. **能派一个任务**：protocol、server（单进程，内存存储）、connector、`runtime-claude`、`source-local`。完成标准：在本地 Markdown 里写一个任务，connector 自动启动 Claude 会话完成，事件流可见。
-2. **三家 runtime**：补齐 `runtime-codex`、`runtime-opencode`，用同一组集成测试覆盖三家，按实际差异修正接口。`runtime-codex`、契约测试和接口修正已完成；`runtime-opencode` 要等对接哪条 OpenCode 产品线定下来。
+2. **三家 runtime**：补齐 `runtime-codex`、`runtime-opencode`，用同一组集成测试覆盖三家，按实际差异修正接口。已完成：三家 runtime 都通过了共用的契约测试，并做过真实运行。
 3. **审批**：动作工具、策略文件、审批会话、人工收件箱。完成标准：implementer 申请合并，审批会话给出结论；命中 `deny` 硬规则的申请不会进入审批会话。
 4. **GitHub + circus playbook**：`source-github`，在一个真实的 circus 风格仓库上跑通"发现 → 实现 → review → 审批合并"。
 5. **频道与多角色**：频道、@ 唤醒、orchestrator 角色。
@@ -241,5 +252,3 @@ packages/
 - 人的登录方式：GitHub OAuth，还是 bigtop 自建账号再绑定各 Source 的身份。
 - 同一任务被多个 Source 镜像时（比如 GitHub issue 和本地任务）如何去重。
 - 审批会话用长期会话（省上下文加载）还是每次新开（更独立）。
-- `runtime-opencode` 对接哪条 OpenCode 产品线：`@opencode-ai/sdk` 1.19.4 描述的 1.x server，还是 `@opencode/cli` 2.x 的 server 及其 `/api` HttpApi。
-- Codex 的 `workspace-write` 是否也要排除 `/tmp` 和 `$TMPDIR`（`sandbox_workspace_write.exclude_slash_tmp`、`exclude_tmpdir_env_var`）；以及怎样不让个人 `~/.codex` 里的指示进入会话，同时又不丢掉存在那里的凭据。

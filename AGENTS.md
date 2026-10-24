@@ -11,6 +11,7 @@ packages/
   protocol/         shared types: Runtime and Source interfaces, session events, event envelope, connector↔server wire messages
   runtime-claude/   Runtime adapter for the Claude Agent SDK
   runtime-codex/    Runtime adapter for the Codex SDK
+  runtime-opencode/ Runtime adapter for OpenCode 2.x (`opencode serve` and `@opencode/client`)
   runtime-contract/ contract test suite every runtime runs from its `contract.test.ts`
   connector/        connector process and the `bigtop-connector` CLI
   server/           hub (scheduling, leases, event log), default playbook, HTTP/WebSocket server, `bigtop-server` CLI

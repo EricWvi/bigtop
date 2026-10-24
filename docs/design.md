@@ -48,20 +48,20 @@ bigtop lets a crew of agents pick up work on their own. Everyone runs a connecto
 
 ### What the SDKs actually offer
 
-Checked against the type definitions of the versions installed from npm on 2026-10-24: `@anthropic-ai/claude-agent-sdk` 0.3.310, `@openai/codex-sdk` 0.164.0, `@opencode-ai/sdk` 1.19.4 (v2 entry).
+Checked against the type definitions of the versions installed from npm: `@anthropic-ai/claude-agent-sdk` 0.3.310 and `@openai/codex-sdk` 0.164.0 on 2026-10-24, `@opencode/client` 2.0.28 on 2026-10-25.
 
-OpenCode currently ships two lines. `@opencode-ai/sdk` 1.19.4 and the column below describe the `opencode-ai` 1.x server. The `@opencode/cli` 2.x server is different: `opencode serve` prints `server listening on …` plus a server password, serves only an `/api` HttpApi (for example `/api/session/{id}/permission/{requestID}/reply`), and pairs with `@opencode/client` or the in-process `@opencode/sdk` 2.x. The 1.19.4 SDK cannot start or talk to it. Which line to target is an open question.
+OpenCode ships two lines. bigtop targets 2.x (`@opencode/cli`), whose `opencode serve` offers only a v2 HttpApi under `/api`, behind basic auth with a password it prints on startup; `@opencode/client` is its generated client and must match the server's version. The 1.x line (`opencode-ai`, `@opencode-ai/sdk` 1.19.4) has a different API and is not supported.
 
-| Capability | Claude Agent SDK | Codex SDK | OpenCode SDK |
+| Capability | Claude Agent SDK | Codex SDK | OpenCode 2.x |
 |---|---|---|---|
-| Shape | In-process `query()`, driving Claude Code | `Codex.startThread()`, driving `codex exec` and reading JSONL events | Client/server: `createOpencode()` starts `opencode serve`; HTTP + SSE |
-| Multi-turn | `streamInput()`, or a new query with `resume` | Repeated `run()` / `runStreamed()` on one `Thread` | Repeated `session.prompt()` / `promptAsync()` on one session |
-| Resume | `resume: sessionId`, `forkSession` | `resumeThread(id)`, stored in `~/.codex/sessions` | Sessions persist on the server; `session.fork()` |
-| Interrupt | `Query.interrupt()`, `abortController` | `TurnOptions.signal` (AbortSignal) | `session.abort()` |
-| Per-tool approval | **Yes**: async callback `canUseTool(toolName, input, …)` returning allow/deny | **No**: only preset `approvalPolicy` and `sandboxMode` | **Yes**: SSE event `permission.asked`, answered with `permission.reply(requestID, "once" \| "always" \| "reject")` |
-| Permission presets | `permissionMode` (including `auto`), allow/deny rules | `sandboxMode`: `read-only` / `workspace-write` / `danger-full-access` | `permission` rules in config |
-| Structured output | `outputFormat` | `TurnOptions.outputSchema` | `format` (json_schema) |
-| Usage | `total_cost_usd`, `maxBudgetUsd`, `maxTurns` | Tokens per turn, no cost | `cost` on messages |
+| Shape | In-process `query()`, driving Claude Code | `Codex.startThread()`, driving `codex exec` and reading JSONL events | Client/server: `opencode serve` (HTTP + SSE `/api/event`) and `@opencode/client` |
+| Multi-turn | `streamInput()`, or a new query with `resume` | Repeated `run()` / `runStreamed()` on one `Thread` | Repeated `session.prompt()` on one session; it returns once the prompt is queued |
+| Resume | `resume: sessionId`, `forkSession` | `resumeThread(id)`, stored in `~/.codex/sessions` | Sessions persist in OpenCode's database; `session.fork()` |
+| Interrupt | `Query.interrupt()`, `abortController` | `TurnOptions.signal` (AbortSignal) | `session.interrupt()` |
+| Per-tool approval | **Yes**: async callback `canUseTool(toolName, input, …)` returning allow/deny | **No**: only preset `approvalPolicy` and `sandboxMode` | **Yes**: event `permission.asked`, answered with `permission.reply({ decision: "once" \| "always" \| "reject" })` |
+| Permission presets | `permissionMode` (including `auto`), allow/deny rules | `sandboxMode`: `read-only` / `workspace-write` / `danger-full-access` | Session `permissions`: `{ action, resource, effect }` rules, the last match wins |
+| Structured output | `outputFormat` | `TurnOptions.outputSchema` | **None** |
+| Usage | `total_cost_usd`, `maxBudgetUsd`, `maxTurns` | Tokens per turn, no cost | Cost and tokens per step (`session.step.ended`) |
 
 ### Interface
 
@@ -75,6 +75,7 @@ interface Runtime {
     costUsd: boolean;        // reports cost
     maxTurns: boolean;       // enforces limits.maxTurns (false for Codex)
     maxCostUsd: boolean;     // enforces limits.maxCostUsd (false for Codex)
+    structuredOutput: boolean; // honours outputSchema (false for OpenCode)
     fork: boolean;
   };
   start(spec: SessionSpec): Promise<RuntimeSession>;
@@ -120,11 +121,21 @@ This gives all three runtimes the same approval semantics: workflow-level approv
 Measured with codex-cli 0.164.0 on Linux:
 
 - Out-of-bounds operations under `workspace-write` with `approvalPolicy: "never"` fail inside the sandbox without asking anyone: writing to `$HOME` outside the workspace fails, writing into `.git` fails, and network connections fail. The turn does not fail; the agent sees failed commands and carries on.
-- `/tmp` and `$TMPDIR` are writable under `workspace-write`: they are among Codex's default writable roots, so the sandbox is not "workspace only".
+- `/tmp` and `$TMPDIR` are writable under `workspace-write`: they are among Codex's default writable roots, so the sandbox is not "workspace only". bigtop keeps it that way; tools need a scratch directory.
 - Commands the sandbox refuses produce no `command_execution` item, so they never appear as tool events. Ordinary failing commands do appear, with `status: "failed"`. bigtop therefore cannot audit sandbox denials from Codex.
 - Killing `codex exec`, which is how a turn is aborted, leaves the command it was running alive, because Codex runs commands in their own session. After an aborted turn the adapter stops processes whose environment carries the thread's `CODEX_THREAD_ID`. This works on Linux only; elsewhere such commands keep running.
-- Codex reads the person's `~/.codex/config.toml` and `~/.codex/AGENTS.md`, where its credentials also live, whereas Claude sessions load project settings only. Instructions in the personal `AGENTS.md` reach the session.
+- Codex reads the person's `~/.codex/config.toml` and `~/.codex/AGENTS.md`, where its credentials also live, whereas Claude sessions load project settings only. Instructions in the personal `AGENTS.md` reach the session. bigtop does not isolate `~/.codex`.
 - Codex enforces neither `maxTurns` nor `maxCostUsd` (its capabilities say so); `deadline` works.
+
+### OpenCode
+
+- **Server**: by default the runtime starts a private `opencode serve --port=0` with the first session, stops it once the last session has been closed for a minute, and kills it when the connector exits. It never uses the person's background `opencode service`. It can be pointed at an existing server instead.
+- **Roles**: each session gets `permissions` on top of the `build` agent, which allows everything: `shell` and `external_directory` ask, `question` is denied (nobody is there to answer), and read-only roles also deny `edit`. Instructions go into the session's instruction entry `bigtop` (an experimental endpoint); models are written `provider/model`. Resuming re-applies the role.
+- **Turns**: the adapter subscribes to events before prompting and waits for the stream's first event, since the subscription connects lazily. A turn ends on `session.execution.succeeded`, `failed` or `interrupted`; `session.idle` does not come reliably. Permission requests from subagent sessions the session started go through the same approval path.
+- **Limits**: OpenCode has no turn or budget limit of its own, so the adapter interrupts the session when a step ends past `maxTurns` or `maxCostUsd`.
+- **Files**: a step names the files it changed but not how, so `file.changed` always says `update`.
+
+Measured with opencode 2.0.28 and `deepseek/deepseek-flash`: read-only sessions do not get the write and edit tools at all; under `workspace-write` writes in the workspace go through without asking and writes outside it ask; `shell` asks; interrupting stops a running shell command too; `maxTurns` stops the session after the step that reached it.
 
 ## Actions: high-risk operations go through the connector
 
@@ -165,7 +176,7 @@ requesting session ──action/tool call──► connector ──► server: A
 
 - **Independent**: the approver session never reuses the requester's context; it is opened fresh for each request or is a dedicated long-lived approver session, and may be configured to use a different runtime or model from the requester.
 - **Read-only**: the approver role has read access only (Codex `read-only`; Claude and OpenCode deny every write tool). It can read diffs, tasks and code but cannot change them.
-- **Structured verdict**: each SDK's structured output constrains the verdict to `{ verdict, reason, conditions? }`; a verdict that fails to parse counts as `escalate`.
+- **Structured verdict**: the runtime's structured output constrains the verdict to `{ verdict, reason, conditions? }`, so approver sessions run on a runtime with `structuredOutput` (Claude or Codex, not OpenCode); a verdict that fails to parse counts as `escalate`.
 - **Policy file**: each playbook ships an approval policy (natural language plus hard rules). Hard rules are evaluated in code before any approver session runs:
   - `deny`: always rejected; the approver cannot override (for example force-pushing the default branch, changing credentials, deleting a repository);
   - `escalate`: always goes to a human;
@@ -229,7 +240,7 @@ Why TypeScript: all three SDKs are first-class in TS, and the connector has to r
 ## Phases
 
 1. **Dispatch one task**: protocol, server (single process, in-memory storage), connector, `runtime-claude`, `source-local`. Done when a task written in local Markdown makes the connector start a Claude session that completes it, with the event stream visible.
-2. **All three runtimes**: add `runtime-codex` and `runtime-opencode`, cover all three with one integration test suite, and revise the interface to match the real differences. `runtime-codex`, the contract suite and the interface changes are in; `runtime-opencode` waits on which OpenCode line to target.
+2. **All three runtimes**: add `runtime-codex` and `runtime-opencode`, cover all three with one integration test suite, and revise the interface to match the real differences. Done: all three runtimes pass the shared contract suite and have been run for real.
 3. **Approval**: action tools, policy files, approver sessions, the human inbox. Done when an implementer requests a merge and an approver session returns a verdict, and requests matching a `deny` hard rule never reach an approver session.
 4. **GitHub + circus playbook**: `source-github`, running "discover → implement → review → approve merge" end to end on a real circus-style repository.
 5. **Channels and multiple roles**: channels, @-mention wake-ups, the orchestrator role.
@@ -241,5 +252,3 @@ Why TypeScript: all three SDKs are first-class in TS, and the connector has to r
 - How people sign in: GitHub OAuth, or bigtop accounts linked to each Source's identity.
 - Deduplicating a task mirrored in several Sources (for example a GitHub issue and a local task).
 - Whether the approver is a long-lived session (cheaper context loading) or opened fresh each time (more independent).
-- Which OpenCode line `runtime-opencode` targets: the 1.x server that `@opencode-ai/sdk` 1.19.4 describes, or the 2.x `@opencode/cli` server and its `/api` HttpApi.
-- Whether Codex's `workspace-write` should also exclude `/tmp` and `$TMPDIR` (`sandbox_workspace_write.exclude_slash_tmp`, `exclude_tmpdir_env_var`), and how to keep personal `~/.codex` instructions out of sessions without losing the credentials stored there.
