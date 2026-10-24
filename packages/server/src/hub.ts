@@ -276,6 +276,8 @@ export class Hub {
     this.events.append("connector.offline", this.#actor(state), { reason }, { connector: state.id });
     this.#log(`connector ${state.id} offline: ${reason}`);
     clearTimeout(state.expiry);
+    // stop() closes every connection; a grace timer started then would keep the process alive.
+    if (this.#stopped) return;
     state.expiry = setTimeout(() => {
       for (const d of this.#dispatchesOf(state.id)) this.#expire(d, "connector did not come back");
     }, this.#o.leaseMs);

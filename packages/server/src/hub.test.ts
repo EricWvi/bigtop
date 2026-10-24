@@ -259,6 +259,16 @@ test("failed sessions mark the task failed and it is not retried", async () => {
   assert.equal(conn.of("dispatch.offer").length, 1);
 });
 
+test("connections closed by stop() start no grace timer", async () => {
+  const { hub, connect } = await setup([task("t1")], { leaseMs: 10 });
+  const { conn, handle, send } = connect();
+  send({ type: "dispatch.accept", dispatchId: conn.of("dispatch.offer")[0]!.dispatchId, sessionId: "s1" });
+  hub.stop();
+  handle.closed();
+  await new Promise((r) => setTimeout(r, 30));
+  assert.equal(types(hub).includes("dispatch.expired"), false);
+});
+
 test("a failed write-back marks the task stuck instead of re-running it", async () => {
   const source = memorySource([task("t1")]);
   source.update = async () => {
