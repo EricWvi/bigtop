@@ -18,7 +18,8 @@ export interface DispatchPlan {
 
 export interface SessionResult {
   outcome: SessionOutcome;
-  sessionId: string;
+  /** Missing if the session never got an id. */
+  sessionId?: string;
   /** Final text of the last completed turn. */
   result?: string;
   error?: string;
@@ -101,7 +102,11 @@ export function createDefaultPlaybook(options: DefaultPlaybookOptions = {}): Pla
     },
 
     finish(_task, result) {
-      const footer = `Session \`${result.sessionId}\`${result.costUsd !== undefined ? `, $${result.costUsd.toFixed(4)}` : ""}.`;
+      const footer = [
+        result.sessionId ? `Session \`${result.sessionId}\`` : "Session",
+        result.costUsd !== undefined ? `, $${result.costUsd.toFixed(4)}` : "",
+        ".",
+      ].join("");
       switch (result.outcome) {
         case "completed":
           return { status: "done", note: `${result.result?.trim() || "(no summary)"}\n\n${footer}` };

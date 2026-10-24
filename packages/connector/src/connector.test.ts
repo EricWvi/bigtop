@@ -17,10 +17,10 @@ class FakeSession implements RuntimeSession {
   interrupts = 0;
   closed = false;
   interrupted = Promise.withResolvers<void>();
-  readonly id: string;
+  id: string | undefined;
   #spec: SessionSpec;
   #turn: Turn;
-  constructor(id: string, spec: SessionSpec, turn: Turn) {
+  constructor(id: string | undefined, spec: SessionSpec, turn: Turn) {
     this.id = id;
     this.#spec = spec;
     this.#turn = turn;
@@ -41,7 +41,7 @@ function fakeRuntime(turn: Turn, over: Partial<Runtime> = {}) {
   const sessions: FakeSession[] = [];
   const specs: SessionSpec[] = [];
   const resumed: string[] = [];
-  const open = async (id: string, spec: SessionSpec) => {
+  const open = async (id: string | undefined, spec: SessionSpec) => {
     specs.push(spec);
     const session = new FakeSession(id, spec, turn);
     sessions.push(session);
@@ -50,7 +50,7 @@ function fakeRuntime(turn: Turn, over: Partial<Runtime> = {}) {
   const runtime: Runtime = {
     kind: "claude",
     version: "1.0.0",
-    capabilities: { toolApproval: true, costUsd: true, fork: true },
+    capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, fork: true },
     start: (spec) => open(`s${sessions.length + 1}`, spec),
     resume: (id, spec) => {
       resumed.push(id);
@@ -134,6 +134,21 @@ test("runs an offer: accept, stream events without raw, end", async () => {
   assert.deepEqual(fake.specs[0]!.limits, { maxTurns: 3 });
   assert.equal(fake.sessions[0]!.closed, true);
   assert.deepEqual(connector.activeDispatches, []);
+});
+
+test("reports a session id the runtime assigns during the first turn when the session ends", async () => {
+  const turn: Turn = async function* (_spec, session) {
+    session.id = "thread-1";
+    yield completed;
+  };
+  const fake = fakeRuntime(turn, { start: async (spec) => new FakeSession(undefined, spec, turn) });
+  const { connector, sent } = setup([fake.runtime]);
+  connector.handle(offer());
+  await settle(connector);
+  assert.deepEqual(ofType(sent, "dispatch.accept"), [{ type: "dispatch.accept", dispatchId: "d1" }]);
+  assert.deepEqual(ofType(sent, "session.ended"), [
+    { type: "session.ended", dispatchId: "d1", sessionId: "thread-1", outcome: "completed" },
+  ]);
 });
 
 test("declines offers it cannot take", async () => {
@@ -260,7 +275,7 @@ test("runtimes without tool approval get no onToolApproval", async () => {
     async function* () {
       yield completed;
     },
-    { kind: "codex", capabilities: { toolApproval: false, costUsd: false, fork: false } },
+    { kind: "codex", capabilities: { toolApproval: false, costUsd: false, maxTurns: false, maxCostUsd: false, fork: false } },
   );
   const { connector } = setup([fake.runtime]);
   connector.handle(offer({ runtime: "codex" }));

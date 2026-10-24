@@ -10,6 +10,10 @@ export interface RuntimeCapabilities {
   toolApproval: boolean;
   /** Reports cost in USD on `turn.completed`. */
   costUsd: boolean;
+  /** Enforces `SessionLimits.maxTurns`; runtimes without it ignore the limit. */
+  maxTurns: boolean;
+  /** Enforces `SessionLimits.maxCostUsd`; runtimes without it ignore the limit. */
+  maxCostUsd: boolean;
   fork: boolean;
 }
 
@@ -55,6 +59,7 @@ export interface SessionSpec {
 }
 
 export interface Usage {
+  /** Input tokens not read from the prompt cache. */
   inputTokens: number;
   outputTokens: number;
   cachedInputTokens?: number;
@@ -77,11 +82,15 @@ export interface SendOptions {
 }
 
 export interface RuntimeSession {
-  /** Stable id; pass it to `Runtime.resume` to continue the conversation. */
-  readonly id: string;
   /**
-   * Runs one turn. The stream ends after `turn.completed` or `error`; an `error`
-   * event means the turn failed.
+   * Stable id; pass it to `Runtime.resume` to continue the conversation.
+   * Undefined until the SDK assigns one: Codex does so during the first turn.
+   */
+  readonly id: string | undefined;
+  /**
+   * Runs one turn. The stream ends with exactly one `turn.completed` or `error`;
+   * an `error` event means the turn failed. A turn stopped by `interrupt()`
+   * ends with the error "interrupted".
    */
   send(input: string, options?: SendOptions): AsyncIterable<SessionEvent>;
   interrupt(): Promise<void>;

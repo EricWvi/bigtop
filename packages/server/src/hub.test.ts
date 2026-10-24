@@ -52,7 +52,7 @@ const hello = (over: Partial<Hello> = {}): Hello => ({
   connectorId: "alice",
   token: "secret",
   capabilities: {
-    runtimes: [{ kind: "claude", version: "1", capabilities: { toolApproval: true, costUsd: true, fork: true } }],
+    runtimes: [{ kind: "claude", version: "1", capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, fork: true } }],
     slots: 1,
     workspaces: ["demo"],
     platform: "linux",
@@ -257,6 +257,18 @@ test("failed sessions mark the task failed and it is not retried", async () => {
   await hub.refresh();
   assert.deepEqual(source.updates, [["t1", { status: "failed", note: "The session failed: max turns\n\nSession `s1`." }]]);
   assert.equal(conn.of("dispatch.offer").length, 1);
+});
+
+test("a session id first reported on session.ended is recorded", async () => {
+  const { hub, source, connect } = await setup([task("t1")]);
+  const { conn, send } = connect();
+  const dispatchId = conn.of("dispatch.offer")[0]!.dispatchId;
+  send({ type: "dispatch.accept", dispatchId });
+  send({ type: "session.ended", dispatchId, sessionId: "thread-1", outcome: "failed", error: "boom" });
+  await tick();
+  const ended = hub.events.since().find((e) => e.type === "session.ended")!;
+  assert.equal(ended.subject?.session, "thread-1");
+  assert.deepEqual(source.updates, [["t1", { status: "failed", note: "The session failed: boom\n\nSession `thread-1`." }]]);
 });
 
 test("connections closed by stop() start no grace timer", async () => {

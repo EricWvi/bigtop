@@ -172,8 +172,8 @@ export class Connector {
       return decline(`failed to start session: ${errorMessage(err)}`);
     }
     active.session = session;
-    this.#options.send({ type: "dispatch.accept", dispatchId, sessionId: session.id });
-    this.#log(`accepted ${dispatchId} as ${runtime.kind} session ${session.id}`);
+    this.#options.send({ type: "dispatch.accept", dispatchId, ...(session.id ? { sessionId: session.id } : {}) });
+    this.#log(`accepted ${dispatchId} as ${runtime.kind} session ${session.id ?? "(id assigned on first turn)"}`);
     if (active.interrupted) await session.interrupt().catch(() => {});
 
     let outcome: SessionOutcome = "completed";
@@ -198,7 +198,13 @@ export class Connector {
     for (const [approvalId, pending] of this.#approvals) {
       if (pending.dispatchId === dispatchId) this.#settleApproval(approvalId, { behavior: "deny", message: "session ended" });
     }
-    this.#options.send({ type: "session.ended", dispatchId, sessionId: session.id, outcome, ...(error ? { error } : {}) });
+    this.#options.send({
+      type: "session.ended",
+      dispatchId,
+      ...(session.id ? { sessionId: session.id } : {}),
+      outcome,
+      ...(error ? { error } : {}),
+    });
     this.#log(`ended ${dispatchId}: ${outcome}${error ? ` (${error})` : ""}`);
   }
 

@@ -59,7 +59,7 @@ export function createClaudeRuntime(options: ClaudeRuntimeOptions = {}): Runtime
   return {
     kind: "claude",
     version: sdkVersion(),
-    capabilities: { toolApproval: true, costUsd: true, fork: true },
+    capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, fork: true },
     start: (spec) => open(randomUUID(), spec, false),
     resume: (id, spec) => open(id, spec, true),
   };
@@ -78,6 +78,7 @@ class ClaudeSession implements RuntimeSession {
   /** Whether the SDK has created the session, so later turns resume it instead of creating it. */
   #started: boolean;
   #active: ReturnType<ClaudeQuery> | undefined;
+  #interrupted = false;
   #closed = false;
 
   constructor(id: string, spec: SessionSpec, started: boolean, deps: SessionDeps) {
@@ -99,26 +100,23 @@ class ClaudeSession implements RuntimeSession {
 
     const q = this.#deps.query({ prompt: input, options: this.#options(abortController, options) });
     this.#active = q;
+    this.#interrupted = false;
+    // Why the turn stopped early, if it did; replaces whatever error the SDK reports for it.
+    const stopped = () =>
+      this.#interrupted ? "interrupted" : abortController.signal.aborted ? "session deadline passed" : undefined;
     let ended = false;
     try {
       for await (const msg of q) {
         this.#started = true;
         for (const event of normalize(msg)) {
+          if (ended) continue;
           if (event.type === "turn.completed" || event.type === "error") ended = true;
-          yield event;
+          yield event.type === "error" ? { ...event, message: stopped() ?? event.message } : event;
         }
       }
-      if (!ended) {
-        const message = abortController.signal.aborted ? "session deadline passed" : "turn ended without a result";
-        yield { type: "error", message };
-      }
+      if (!ended) yield { type: "error", message: stopped() ?? "turn ended without a result" };
     } catch (err) {
-      const message = abortController.signal.aborted
-        ? "session deadline passed"
-        : err instanceof Error
-          ? err.message
-          : String(err);
-      yield { type: "error", message };
+      if (!ended) yield { type: "error", message: stopped() ?? (err instanceof Error ? err.message : String(err)) };
     } finally {
       clearTimeout(timer);
       this.#active = undefined;
@@ -126,7 +124,9 @@ class ClaudeSession implements RuntimeSession {
   }
 
   async interrupt(): Promise<void> {
-    await this.#active?.interrupt();
+    if (!this.#active) return;
+    this.#interrupted = true;
+    await this.#active.interrupt();
   }
 
   async close(): Promise<void> {

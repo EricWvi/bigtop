@@ -45,7 +45,8 @@ export interface Hello {
 export interface DispatchAccept {
   type: "dispatch.accept";
   dispatchId: string;
-  sessionId: string;
+  /** Missing when the runtime assigns the id later (Codex); `session.ended` carries it then. */
+  sessionId?: string;
 }
 
 export interface DispatchDecline {
@@ -67,7 +68,8 @@ export type SessionOutcome = "completed" | "failed" | "interrupted";
 export interface SessionEnded {
   type: "session.ended";
   dispatchId: string;
-  sessionId: string;
+  /** Missing only if the session never got an id, for example when its first turn failed to start. */
+  sessionId?: string;
   outcome: SessionOutcome;
   error?: string;
 }
@@ -282,7 +284,7 @@ export function parseConnectorMessage(text: string): ConnectorMessage {
     }
     case "dispatch.accept":
       string(msg, "dispatchId", "dispatch.accept");
-      string(msg, "sessionId", "dispatch.accept");
+      optionalString(msg, "sessionId", "dispatch.accept");
       break;
     case "dispatch.decline":
       string(msg, "dispatchId", "dispatch.decline");
@@ -297,7 +299,7 @@ export function parseConnectorMessage(text: string): ConnectorMessage {
     }
     case "session.ended":
       string(msg, "dispatchId", "session.ended");
-      string(msg, "sessionId", "session.ended");
+      optionalString(msg, "sessionId", "session.ended");
       optionalString(msg, "error", "session.ended");
       if (!OUTCOMES.includes(msg.outcome as SessionOutcome)) {
         throw new ProtocolError(`session.ended.outcome must be one of ${OUTCOMES.join(", ")}`);

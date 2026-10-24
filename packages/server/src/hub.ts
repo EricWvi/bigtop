@@ -331,6 +331,8 @@ export class Hub {
         this.events.append("approval.requested", actor, { request: msg.request }, this.#subject(dispatch, { approval: msg.approvalId }));
         return;
       case "session.ended":
+        // Runtimes that assign the id during the first turn (Codex) report it only here.
+        dispatch.sessionId ??= msg.sessionId;
         this.events.append("session.ended", actor, { outcome: msg.outcome, error: msg.error }, this.#subject(dispatch));
         this.#drop(dispatch, { keepBusy: true });
         void this.#finish(dispatch, msg);
@@ -453,7 +455,7 @@ export class Hub {
   async #finish(dispatch: Dispatch, ended: Extract<ConnectorMessage, { type: "session.ended" }>): Promise<void> {
     const update = this.#o.playbook.finish(dispatch.task, {
       outcome: ended.outcome,
-      sessionId: ended.sessionId,
+      sessionId: dispatch.sessionId,
       result: dispatch.lastResult,
       error: ended.error,
       costUsd: dispatch.costUsd,

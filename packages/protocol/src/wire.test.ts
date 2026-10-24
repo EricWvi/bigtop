@@ -52,7 +52,7 @@ const hello = {
   connectorId: "c1",
   token: "t",
   capabilities: {
-    runtimes: [{ kind: "claude", version: "1", capabilities: { toolApproval: true, costUsd: true, fork: true } }],
+    runtimes: [{ kind: "claude", version: "1", capabilities: { toolApproval: true, costUsd: true, maxTurns: true, maxCostUsd: true, fork: true } }],
     slots: 2,
     workspaces: ["demo"],
     platform: "linux",
@@ -64,9 +64,11 @@ test("parses valid connector messages", () => {
   for (const msg of [
     hello,
     { type: "dispatch.accept", dispatchId: "d1", sessionId: "s1" },
+    { type: "dispatch.accept", dispatchId: "d1" },
     { type: "dispatch.decline", dispatchId: "d1", reason: "busy" },
     { type: "session.event", dispatchId: "d1", seq: 0, event: { type: "message", text: "hi" } },
     { type: "session.ended", dispatchId: "d1", sessionId: "s1", outcome: "failed", error: "x" },
+    { type: "session.ended", dispatchId: "d1", outcome: "completed" },
     { type: "approval.request", dispatchId: "d1", approvalId: "a1", request: { callId: "u1", tool: "Bash", input: {} } },
     { type: "heartbeat", active: ["d1"] },
   ]) {
@@ -83,6 +85,7 @@ test("rejects malformed connector messages", () => {
     [{ type: "session.event", dispatchId: "d1", seq: 0.5, event: { type: "x" } }, /seq/],
     [{ type: "session.event", dispatchId: "d1", seq: 0, event: {} }, /event.type/],
     [{ type: "session.ended", dispatchId: "d1", sessionId: "s1", outcome: "meh" }, /outcome/],
+    [{ type: "dispatch.accept", dispatchId: "d1", sessionId: 7 }, /sessionId/],
     [{ type: "approval.request", dispatchId: "d1", approvalId: "a1", request: { callId: "u1" } }, /request.tool/],
     [{ type: "dispatch.offer" }, /unknown message type/],
   ];
