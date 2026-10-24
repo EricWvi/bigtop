@@ -183,25 +183,34 @@ function checkRole(value: unknown): void {
   }
 }
 
-function checkDecision(value: unknown): void {
+/** Validates an approval decision, for example one a person submits. */
+export function parseDecision(value: unknown): ToolApprovalDecision {
   const decision = object(value, "decision");
-  if (decision.behavior === "allow") return;
-  if (decision.behavior === "deny") {
-    string(decision, "message", "decision");
-    return;
-  }
+  if (decision.behavior === "allow") return { behavior: "allow" };
+  if (decision.behavior === "deny") return { behavior: "deny", message: string(decision, "message", "decision") };
   throw new ProtocolError(`decision.behavior must be "allow" or "deny"`);
 }
 
-/** Parses and validates one frame from the server. Throws ProtocolError on anything malformed. */
-export function parseServerMessage(text: string): ServerMessage {
+function parseFrame(text: string): Json {
   let data: unknown;
   try {
     data = JSON.parse(text);
   } catch {
     throw new ProtocolError("message is not valid JSON");
   }
-  const msg = object(data, "message");
+  return object(data, "message");
+}
+
+function stringArray(obj: Json, key: string, path: string): void {
+  const value = obj[key];
+  if (!Array.isArray(value) || !value.every((v) => typeof v === "string")) {
+    throw new ProtocolError(`${path}.${key} must be an array of strings`);
+  }
+}
+
+/** Parses and validates one frame from the server. Throws ProtocolError on anything malformed. */
+export function parseServerMessage(text: string): ServerMessage {
+  const msg = parseFrame(text);
   switch (msg.type) {
     case "welcome":
       string(msg, "connectorId", "welcome");
@@ -232,7 +241,7 @@ export function parseServerMessage(text: string): ServerMessage {
       break;
     case "approval.decision":
       string(msg, "approvalId", "approval.decision");
-      checkDecision(msg.decision);
+      parseDecision(msg.decision);
       break;
     case "error":
       string(msg, "message", "error");
@@ -241,4 +250,72 @@ export function parseServerMessage(text: string): ServerMessage {
       throw new ProtocolError(`unknown message type ${JSON.stringify(msg.type)}`);
   }
   return msg as unknown as ServerMessage;
+}
+
+const OUTCOMES: readonly SessionOutcome[] = ["completed", "failed", "interrupted"];
+
+/** Parses and validates one frame from a connector. Throws ProtocolError on anything malformed. */
+export function parseConnectorMessage(text: string): ConnectorMessage {
+  const msg = parseFrame(text);
+  switch (msg.type) {
+    case "hello": {
+      string(msg, "connectorId", "hello");
+      string(msg, "token", "hello");
+      if (typeof msg.protocol !== "number") throw new ProtocolError("hello.protocol must be a number");
+      stringArray(msg, "active", "hello");
+      const caps = object(msg.capabilities, "hello.capabilities");
+      if (!Number.isInteger(caps.slots) || (caps.slots as number) < 1) {
+        throw new ProtocolError("hello.capabilities.slots must be a positive integer");
+      }
+      stringArray(caps, "workspaces", "hello.capabilities");
+      string(caps, "platform", "hello.capabilities");
+      if (!Array.isArray(caps.runtimes)) throw new ProtocolError("hello.capabilities.runtimes must be an array");
+      for (const runtime of caps.runtimes) {
+        const r = object(runtime, "hello.capabilities.runtimes[]");
+        if (!RUNTIME_KINDS.includes(r.kind as RuntimeKind)) {
+          throw new ProtocolError(`hello.capabilities.runtimes[].kind must be one of ${RUNTIME_KINDS.join(", ")}`);
+        }
+        string(r, "version", "hello.capabilities.runtimes[]");
+        object(r.capabilities, "hello.capabilities.runtimes[].capabilities");
+      }
+      break;
+    }
+    case "dispatch.accept":
+      string(msg, "dispatchId", "dispatch.accept");
+      string(msg, "sessionId", "dispatch.accept");
+      break;
+    case "dispatch.decline":
+      string(msg, "dispatchId", "dispatch.decline");
+      string(msg, "reason", "dispatch.decline");
+      break;
+    case "session.event": {
+      string(msg, "dispatchId", "session.event");
+      if (!Number.isInteger(msg.seq)) throw new ProtocolError("session.event.seq must be an integer");
+      const event = object(msg.event, "session.event.event");
+      string(event, "type", "session.event.event");
+      break;
+    }
+    case "session.ended":
+      string(msg, "dispatchId", "session.ended");
+      string(msg, "sessionId", "session.ended");
+      optionalString(msg, "error", "session.ended");
+      if (!OUTCOMES.includes(msg.outcome as SessionOutcome)) {
+        throw new ProtocolError(`session.ended.outcome must be one of ${OUTCOMES.join(", ")}`);
+      }
+      break;
+    case "approval.request": {
+      string(msg, "dispatchId", "approval.request");
+      string(msg, "approvalId", "approval.request");
+      const request = object(msg.request, "approval.request.request");
+      string(request, "callId", "approval.request.request");
+      string(request, "tool", "approval.request.request");
+      break;
+    }
+    case "heartbeat":
+      stringArray(msg, "active", "heartbeat");
+      break;
+    default:
+      throw new ProtocolError(`unknown message type ${JSON.stringify(msg.type)}`);
+  }
+  return msg as unknown as ConnectorMessage;
 }
