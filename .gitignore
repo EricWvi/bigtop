@@ -1,0 +1,13 @@
+# Editor directories and files
+.vscode/*
+.idea
+.DS_Store
+*.sw?
+
+/memories
+.tmp
+
+node_modules/
+dist/
+*.tsbuildinfo
+
