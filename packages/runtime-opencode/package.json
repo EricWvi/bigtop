@@ -1,0 +1,16 @@
+{
+  "name": "@bigtop/runtime-opencode",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bigtop/protocol": "^0.0.0",
+    "@opencode/client": "2.0.28"
+  },
+  "devDependencies": {
+    "@bigtop/runtime-contract": "^0.0.0"
+  }
+}
