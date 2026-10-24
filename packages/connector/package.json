@@ -1,0 +1,20 @@
+{
+  "name": "@bigtop/connector",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "bigtop-connector": "./src/cli.ts"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@bigtop/protocol": "^0.0.0",
+    "@bigtop/runtime-claude": "^0.0.0"
+  },
+  "devDependencies": {
+    "@types/ws": "^8.18.2",
+    "ws": "^8.22.0"
+  }
+}

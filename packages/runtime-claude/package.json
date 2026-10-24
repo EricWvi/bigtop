@@ -1,0 +1,13 @@
+{
+  "name": "@bigtop/runtime-claude",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.310",
+    "@bigtop/protocol": "^0.0.0"
+  }
+}
